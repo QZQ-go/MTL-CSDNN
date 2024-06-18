@@ -3,6 +3,7 @@ import pandas
 import os
 import matplotlib.pyplot as plt
 import torch
+from typing import Union
 from data_loader import DiseaseDataSet
 from net import MultiTaskDnn, disease_name
 from torch.utils.data import random_split, DataLoader
@@ -15,41 +16,89 @@ from itertools import product
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
-def my_task(trial: optuna.trial.Trial, if_trail=True):
-    if if_trail:
+def my_task(trial: Union[optuna.trial.Trial, None],
+            use_k_fold=False,
+            k=10,
+            fold_num=1,
+            prefix=None,
+            random_seed=None):
+    if trial:
         BATCH_SIZE = trial.suggest_categorical('BATCH_SIZE', [256, 512, 1024])
         POS_WEIGHT = trial.suggest_int('POS_WEIGHT', 10, 30)
         NEG_WEIGHT = trial.suggest_int('NEG_WEIGHT', 0, 10)
         LR = trial.suggest_float("LR", 1e-5, 1e-1, log=True)
-        momentum = trial.suggest_float('momentum', 0.05, 0.2, step=0.01),
+        momentum = trial.suggest_float('momentum', 0.05, 0.2, step=0.01)
         weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
-        step_size = trial.suggest_int('step_size', 5, 20),
+        step_size = trial.suggest_int('step_size', 5, 20)
         gamma = trial.suggest_float('gamma', 0.1, 0.8, step=0.1)
     else:
-        BATCH_SIZE = 256
-        POS_WEIGHT = 1
-        NEG_WEIGHT = 1
-        LR = 1e-2
-        momentum = 0.08
-        weight_decay = 1e-4
-        step_size = 5
-        gamma = 0.8
+        # BATCH_SIZE = 256
+        # POS_WEIGHT = 30
+        # NEG_WEIGHT = 10
+        # LR = 1e-2
+        # momentum = 0.08
+        # weight_decay = 1e-4
+        # step_size = 4
+        # gamma = 0.7
+
+        BATCH_SIZE = 1024
+        POS_WEIGHT = 30
+        NEG_WEIGHT = 8
+        LR = 0.06
+        momentum = 0.15
+        weight_decay = 1.1e-4
+        step_size = 8
+        gamma = 0.7
+    if not random_seed:
+        random_seed = 5
 
     # 全局参数
-    EPOCHS = 200
+    # EPOCHS = 52
+    # AIMED_ACC = 0.7
+    # AIMED_REC = 0.7
+    # NUM_WORK = 6
+    # PIN_MEMORY = True
+
+    EPOCHS = 52
     AIMED_ACC = 0.7
     AIMED_REC = 0.7
-    NUM_WORK = 6
-    PIN_MEMORY = True
+    NUM_WORK = 0
+    PIN_MEMORY = False
 
-    PREFIX = f'{trial.number}_mt_dnn' if trial else f'mt_dnn'
-    LOGGER_FILE_NAME = os.path.join('files/', f'{PREFIX}_train.log')
-    MODEL_FILE_NAME = os.path.join('files/', f'{PREFIX}_model_para.pt')
-    IMAGE_NAME = os.path.join('files/', f'{PREFIX}_task.png')
-    CSV_NAME = os.path.join('files/', f'{PREFIX}_task.csv')
-    SINGLE_DISEASE_CSV_NAME = os.path.join('files/', f'{PREFIX}_task_single_disease.csv')
-    PR_AUC_FILE_NAME = os.path.join('files/', f'{PREFIX}_pr_auc.csv')
-    METRICS_PATH = os.path.join('files/', f'{PREFIX}_metrics.csv')
+    if trial:
+        PREFIX = f'{trial.number}_mt_dnn'
+    elif use_k_fold:
+        PREFIX = f'k{k}_{fold_num}_mt_dnn'
+    elif prefix:
+        PREFIX = prefix
+    else:
+        PREFIX = 'mt_dnn'
+
+    if use_k_fold:
+        if not os.path.exists("k_fold"):
+            os.mkdir('k_fold')
+        target_dir = f'k_fold/k{k}_{fold_num}'
+        os.mkdir(target_dir)
+    elif trial:
+        if not os.path.exists("trial"):
+            os.mkdir('trial')
+        target_dir = f'trial/trial_{trial.number}'
+        os.mkdir(target_dir)
+    else:
+        t = 'files/'
+        if not os.path.exists(t):
+            os.mkdir(t)
+        target_dir = os.path.join(t, f'{PREFIX}/')
+        os.mkdir(target_dir)
+
+    LOGGER_FILE_NAME = os.path.join(target_dir, f'{PREFIX}_train.log')
+    MODEL_FILE_NAME = os.path.join(target_dir, f'{PREFIX}_model_para.pt')
+    IMAGE_NAME = os.path.join(target_dir, f'{PREFIX}_task.png')
+    CSV_NAME = os.path.join(target_dir, f'{PREFIX}_task.csv')
+    SINGLE_DISEASE_CSV_NAME = os.path.join(target_dir, f'{PREFIX}_task_single_disease.csv')
+    PR_AUC_FILE_NAME = os.path.join(target_dir, f'{PREFIX}_pr_auc.csv')
+    METRICS_PATH = os.path.join(target_dir, f'{PREFIX}_metrics.csv')
+    SINGLE_DISEASE_METRICS_PATH = os.path.join(target_dir, f'{PREFIX}_single_disease_metrics.csv')
 
     logger = init_console_and_file_log("Trainer", LOGGER_FILE_NAME)
     logger.info(f'use device {device.type}')
@@ -64,12 +113,36 @@ def my_task(trial: optuna.trial.Trial, if_trail=True):
 
     # 定义数据集
     data_set = DiseaseDataSet()
-    train_len = int(round(len(data_set) * 0.8, 0))
-    test_len = int(round(len(data_set) * 0.1, 0))
-    train_len += len(data_set) - train_len - test_len * 2
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset=data_set, lengths=[train_len, test_len, test_len], generator=torch.Generator().manual_seed(5)
-    )
+
+    if use_k_fold:
+        k_ratio = round(1 / k, 1)
+        before = round(k_ratio * (fold_num - 1), 1)
+        k_fold = k_ratio
+        after = round(1 - before - k_fold, 1)
+
+        bf_dataset, test_dataset, af_dataset = random_split(
+            dataset=data_set,
+            lengths=[before, k_fold, after],
+            generator=torch.Generator().manual_seed(random_seed)
+        )
+
+        rest_dataset = bf_dataset + af_dataset
+        train_dataset, val_dataset = random_split(
+            dataset=rest_dataset,
+            lengths=[0.9, 0.1],
+            generator=torch.Generator().manual_seed(random_seed)
+        )
+    else:
+        train_len = int(round(len(data_set) * 0.8, 0))
+        test_len = int(round(len(data_set) * 0.1, 0))
+        train_len += len(data_set) - train_len - test_len * 2
+
+        train_dataset, val_dataset, test_dataset = random_split(
+            dataset=data_set,
+            lengths=[train_len, test_len, test_len],
+            generator=torch.Generator().manual_seed(random_seed)
+        )
+
     data_set_dict = {'train': train_dataset, 'val': val_dataset, 'test': test_dataset}
     data_loader_dict = {k: DataLoader(data_set_dict[k],
                                       shuffle=True,
@@ -102,7 +175,7 @@ def my_task(trial: optuna.trial.Trial, if_trail=True):
             dse_t_metrics = {dse: MetricsRecoder() for dse in disease_name}
 
             target_data_loader = data_loader_dict[mode]
-            for i, data in enumerate(tqdm(target_data_loader)):
+            for fold_num, data in enumerate(tqdm(target_data_loader)):
                 if mode == "train":
                     optimizer.zero_grad()
 
@@ -132,7 +205,8 @@ def my_task(trial: optuna.trial.Trial, if_trail=True):
                     loss_list.append(loss)
 
                     t_metrics.load(label[k], outputs[k], loss)
-                    dse_t_metrics[k].load(label[k], outputs[k], loss)
+                    if not trial:
+                        dse_t_metrics[k].load(label[k], outputs[k], loss)
 
                 final_loss: torch.Tensor = sum(loss_list)
 
@@ -142,7 +216,8 @@ def my_task(trial: optuna.trial.Trial, if_trail=True):
 
             # 记录该轮训练产生的数据
             acc, rec, total_loss = t_metrics.get_metrics()
-            dse_res_dict = {dse: dse_t_metrics[dse].get_metrics() for dse in disease_name}
+            if not trial:
+                dse_res_dict = {dse: dse_t_metrics[dse].get_metrics() for dse in disease_name}
 
             recorder[f'{mode}_loss'].append(total_loss)
             recorder[f'{mode}_rec'].append(rec)
@@ -152,10 +227,11 @@ def my_task(trial: optuna.trial.Trial, if_trail=True):
             logger.info(f"{mode} acc {acc}")
             logger.info(f"{mode} rec {rec}")
 
-            for des in disease_name:
-                des_recorder[f'{des}_{mode}_acc'].append(dse_res_dict[des][0])
-                des_recorder[f'{des}_{mode}_rec'].append(dse_res_dict[des][1])
-                des_recorder[f'{des}_{mode}_loss'].append(dse_res_dict[des][2])
+            if not trial:
+                for des in disease_name:
+                    des_recorder[f'{des}_{mode}_acc'].append(dse_res_dict[des][0])
+                    des_recorder[f'{des}_{mode}_rec'].append(dse_res_dict[des][1])
+                    des_recorder[f'{des}_{mode}_loss'].append(dse_res_dict[des][2])
 
         scheduler.step()
 
@@ -179,8 +255,9 @@ def my_task(trial: optuna.trial.Trial, if_trail=True):
         # 将训练记录保存为一个csv文件
         df = pandas.DataFrame(recorder)
         df.to_csv(CSV_NAME)
-        df = pandas.DataFrame(des_recorder)
-        df.to_csv(SINGLE_DISEASE_CSV_NAME)
+        if not trial:
+            df = pandas.DataFrame(des_recorder)
+            df.to_csv(SINGLE_DISEASE_CSV_NAME)
 
         # 如果精确度和召回率达到预期，则开始储存模型
         val_acc = recorder[f'val_acc'][-1]
@@ -203,7 +280,7 @@ def my_task(trial: optuna.trial.Trial, if_trail=True):
             metrics_dict = {ds: TestMetricsRecoder() for ds in disease_name}
             metrics_dict.update({'all': TestMetricsRecoder()})
 
-            for i, data in enumerate(tqdm(data_loader_dict['test'])):
+            for fold_num, data in enumerate(tqdm(data_loader_dict['test'])):
                 label: dict = data[1]
                 inputs: dict = data[0]
                 for k in inputs.keys():
@@ -213,35 +290,50 @@ def my_task(trial: optuna.trial.Trial, if_trail=True):
                 outputs: dict = test_model(inputs)
 
                 for k in label.keys():
-                    metrics_dict[k].load(label[k], outputs[k], None)
                     metrics_dict['all'].load(label[k], outputs[k], None)
+                    if not trial:
+                        metrics_dict[k].load(label[k], outputs[k], None)
 
             all_metrics = metrics_dict['all'].get_metrics(PR_AUC_FILE_NAME)
-            pandas.DataFrame([all_metrics]).T.to_csv(METRICS_PATH)
+            if not trial:  # 如果在进行参数搜索，那么没必要进行测试
+                pandas.DataFrame([all_metrics]).T.to_csv(METRICS_PATH)
+                metrics_dict.pop('all')
+                res = {key: metrics_dict[key].get_metrics(os.path.join(target_dir, f'{PREFIX}_{key}_pr_auc.csv')) for key in metrics_dict.keys()}
+                pandas.DataFrame(res).to_csv(SINGLE_DISEASE_METRICS_PATH)
 
             if all_metrics['prc_auc'] > best_value:
                 best_value = all_metrics['prc_auc']
 
-            if if_trail:
+            if trial:
                 trial.report(all_metrics['prc_auc'], epoch)
                 if trial.should_prune():
                     raise optuna.exceptions.TrialPruned
 
             logger.info(f'test metrics: {all_metrics}')
+
     return best_value
 
 
 def trial_task():
     study = optuna.create_study(
-        storage="sqlite:///db.sqlite3",  # 数据文件存放的地址
-        study_name="multi_task",  # 需要指定学习任务的名字，该名字就是数据文件的名字
-        direction="maximize",
-        pruner=optuna.pruners.MedianPruner(n_warmup_steps=20),
-        load_if_exists=True)
+            storage="sqlite:///multi_task.sqlite3",  # 数据文件存放的地址
+            study_name="multi_task",  # 需要指定学习任务的名字，该名字就是数据文件的名字
+            direction="maximize",
+            pruner=optuna.pruners.MedianPruner(n_warmup_steps=20),
+            load_if_exists=True)
     study.optimize(my_task, n_trials=40)
 
     print(f'best params:{study.best_params}, best value:{study.best_value}, best trial:{study.best_trial}')
 
 
 if __name__ == '__main__':
-    my_task(None, if_trail=False)
+    # for i in range(6, 10, 1):
+    #     my_task(None, use_k_fold=True, fold_num=i+1)
+
+    my_task(None, use_k_fold=True, fold_num=10)
+
+    # my_task(None, use_k_fold=False)
+    # for i in range(10):
+    #     pre = f'平行实验随机数{i+1}'
+    #     my_task(None, if_trail=False, use_k_fold=False, prefix=pre, random_seed=i+1)
+    # trial_task()

@@ -15,7 +15,7 @@ Unfortunately, the data set of this repository is confidential for some reason, 
 The architecture of the code is described next:
 - config.py: changing global setting or params here
 - data_loader.py: providing dataloader for the model
-- MTL_CS_DNN_run.py: training MTL-CSDNN here
+- MTL_CS_DNN_run.py: training MTL-CSDNN here, and also you can use k-folds and trials by changing the params
 - net.py: coding the structure of the model
 - pack_task.py: some baselines including: tabnet,catboost,xgboost
 - trial_pytorch.py: some baselines including: global-dnn,logistic regression,1d-cnn,saint,tab transform

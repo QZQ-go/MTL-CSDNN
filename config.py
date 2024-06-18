@@ -1,8 +1,8 @@
 import torch
 import argparse
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 train_parser = argparse.ArgumentParser(prog='train argparse')
 sub_parse = train_parser.add_subparsers(title='subparsers')

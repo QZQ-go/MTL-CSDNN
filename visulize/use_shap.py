@@ -2,9 +2,12 @@ import shap
 import torch
 from torch.utils.data import random_split, DataLoader
 from data_loader import SingleDiseaseDataSet
-from dnn_net import *
 from matplotlib import pyplot as plt
 from IPython.display import (display, display_html, display_png, display_svg)
+from get_feature_names import get_feature_name_list
+from net import MultiTaskDnnTest, disease_name
+
+ft_list = get_feature_name_list()
 
 
 def my_shap(target_diseases='血脂异常', test_dataset_len=None):
@@ -20,7 +23,7 @@ def my_shap(target_diseases='血脂异常', test_dataset_len=None):
     # 准备模型
     model = MultiTaskDnnTest(target_diseases)
 
-    model.load_state_dict(torch.load('model_para.pt'))
+    model.load_state_dict(torch.load('mt_dnn_model_para.pt'))
     model.eval()
 
     train_data_loader = DataLoader(train_dataset,
@@ -39,10 +42,18 @@ def my_shap(target_diseases='血脂异常', test_dataset_len=None):
     shap_values = explainer.shap_values(torch.Tensor([test_dataset[i][0] for i in range(aimed_len)]))
     shap.initjs()
 
+    plt.rcParams['font.sans-serif'] = ['SimHei']  # 使用中文黑体
+    plt.rcParams['axes.unicode_minus'] = False  # 确保坐标轴负号显示正常
     plt.clf()
     plt.figure()
-    shap.summary_plot(shap_values, torch.Tensor([test_dataset[i][0] for i in range(aimed_len)]), show=False)
+    shap.summary_plot(shap_values, torch.Tensor([test_dataset[i][0] for i in range(aimed_len)]), show=False, feature_names=ft_list)
 
     # shap.force_plot(explainer.expected_value, shap_values, matplotlib=True)
 
-    plt.savefig(f'{target_diseases}.png')
+    plt.savefig(f'shap/{target_diseases}.png')
+
+
+if __name__ == '__main__':
+    for name in disease_name:
+        my_shap(name)
+    

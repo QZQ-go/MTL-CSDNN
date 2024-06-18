@@ -183,7 +183,7 @@ def get_metrics(ture_y, pred_y, prc_save_path=None):
     from utils.pytorch_model_kit import TestMetricsRecoder
 
     my_metrics = TestMetricsRecoder()
-    my_metrics.y_ture, my_metrics.y_score = ture_y, pred_y
+    my_metrics.y_labels, my_metrics.y_outputs = ture_y, pred_y
     return my_metrics.get_metrics(prc_save_path=prc_save_path)
 
 

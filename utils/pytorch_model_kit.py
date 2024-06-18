@@ -71,27 +71,27 @@ class TestMetricsRecoder(MetricsRecoder):
     def __init__(self):
         super().__init__()
 
-        self.y_ture = []
-        self.y_score = []
+        self.y_labels = []
+        self.y_outputs = []
 
     def load(self, labels, outputs, loss):
         # 记录auc数据
-        self.y_ture.append(labels)
-        self.y_score.append(outputs)
+        self.y_labels.append(labels)
+        self.y_outputs.append(outputs)
 
     def get_metrics(self, prc_save_path=None):
         if prc_save_path is None:
             prc_save_path = 'files/precision_recall_curve.csv'
 
-        if isinstance(self.y_ture[0], torch.Tensor):
-            total_label = torch.cat(self.y_ture).tolist()
-            total_score = torch.cat(self.y_score).tolist()
-        elif isinstance(self.y_ture[0], numpy.ndarray):
-            total_label = numpy.concatenate(self.y_ture).tolist()
-            total_score = torch.concatenate(self.y_score).tolist()
+        if isinstance(self.y_labels[0], torch.Tensor):
+            total_label = torch.cat(self.y_labels).tolist()
+            total_score = torch.cat(self.y_outputs).tolist()
+        elif isinstance(self.y_labels[0], numpy.ndarray):
+            total_label = numpy.concatenate(self.y_labels).tolist()
+            total_score = torch.concatenate(self.y_outputs).tolist()
         else:
-            total_label = self.y_ture
-            total_score = self.y_score
+            total_label = self.y_labels
+            total_score = self.y_outputs
 
         y_pred = numpy.round(total_score, decimals=0)
         acc = metrics.accuracy_score(total_label, y_pred)

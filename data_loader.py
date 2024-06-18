@@ -31,10 +31,10 @@ def set_random_seed(seed):
 
 set_random_seed(5)
 
-DATA_CSV_PATH = r"csv_file/knn_4_mask2022.csv"
-DEATH_CSV_PATH = 'csv_file/death_label.csv'
-DISEASE_CSV_PATH = r"csv_file/res 9.21.csv"
-CATE_CSV_PATH = r"csv_file/data_cate2.csv"
+DATA_CSV_PATH = r"data/原始数据 KNN补全 Version4.csv"
+DEATH_CSV_PATH = 'data/死亡标签.csv'
+DISEASE_CSV_PATH = r"data/患病标签.csv"
+CATE_CSV_PATH = r"data/数据类型.csv"
 
 if os.path.exists(DATA_CSV_PATH):
     tj_data_df = pandas.read_csv(DATA_CSV_PATH, index_col=0)
@@ -91,17 +91,17 @@ def save_data_arr_dict():
 
 
 def get_data_arr_dict():
-    with open('csv_file/arr_dict', 'rb') as f:
+    with open('data/原始数据转array字典', 'rb') as f:
         res = pickle.load(f)
     return res
 
 
 class DiseaseDataSet(Dataset):
     """
-    每个病症对应一个
+    每个病症对应一个`
     返回每个病症的数据样本
     """
-    def __init__(self, target_diseases=None):
+    def __init__(self, target_diseases=None, use_k_fold=True, k=None, i=None):
         self.target_diseases = target_diseases
         # 如果有标记该参数，则专门提供一个疾病的学习样本
         self.data_arr_dict = get_data_arr_dict()
@@ -109,11 +109,12 @@ class DiseaseDataSet(Dataset):
         self.dse_df = disease_df
 
         # 获取疾病名称的列表
-        self.dse_name_list = disease_df.columns.to_list()
-        if "idnum" in self.dse_name_list:
-            self.dse_name_list.remove("idnum")
         if self.target_diseases is not None:
             self.dse_name_list = [self.target_diseases]
+        else:
+            self.dse_name_list = disease_df.columns.to_list()
+            if "idnum" in self.dse_name_list:
+                self.dse_name_list.remove("idnum")
 
         # 获取死亡的id
         self.death_id = death_df["idnum"].tolist()
@@ -206,4 +207,4 @@ class GlobalDiseaseDataSet(Dataset):
 
 
 if __name__ == "__main__":
-    save_data_arr_dict()
+    print(disease_df.columns.to_list())
